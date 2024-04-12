@@ -1,4 +1,3 @@
-// TODO: move to a specialized module
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread,

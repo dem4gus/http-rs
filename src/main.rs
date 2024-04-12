@@ -1,4 +1,6 @@
-use http_rs::ThreadPool;
+mod server;
+
+use server::thread_pool::ThreadPool;
 use std::{
     fs,
     io::{prelude::*, BufReader},
