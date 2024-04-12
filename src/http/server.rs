@@ -32,6 +32,7 @@ where
             }
         }
     }
+    // TODO: graceful shutdown on SIGINT
     println!("Shutting down.");
 
     Ok(())
@@ -59,7 +60,7 @@ fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn parse_request(request_line: &str) -> Option<Request> {
+fn parse_request_line(request_line: &str) -> Result<Request, Error> {
     let [method_raw, target, protocol] = match request_line.split(' ').collect::<Vec<&str>>()[..] {
         [method, target, protocol] => [method, target, protocol],
         // TODO: return a parse error instead of None
@@ -91,6 +92,17 @@ enum HttpMethod {
     GET,
 }
 
+#[derive(Debug)]
+struct ParseRequestError {
+    request: String,
+}
+
+impl std::fmt::Display for ParseRequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "could not parse request '{}'", self.request)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -99,7 +111,7 @@ mod test {
         let request = "GET foo bar";
         let want = HttpMethod::GET;
 
-        if let Some(parsed_request) = parse_request(request) {
+        if let Some(parsed_request) = parse_request_line(request) {
             assert_eq!(want, parsed_request.method);
         } else {
             panic!("did not parse correctly");
