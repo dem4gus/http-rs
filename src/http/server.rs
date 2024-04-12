@@ -3,6 +3,8 @@ use std::fs;
 use std::io::{prelude::*, BufReader};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 
+// TODO: make a struct to hold all this
+
 pub fn new<A>(listen_addr: A, workers: usize) -> Result<(), std::io::Error>
 where
     A: ToSocketAddrs,
@@ -55,4 +57,52 @@ fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
     };
 
     Ok(())
+}
+
+fn parse_request(request_line: &str) -> Option<Request> {
+    let [method_raw, target, protocol] = match request_line.split(' ').collect::<Vec<&str>>()[..] {
+        [method, target, protocol] => [method, target, protocol],
+        // TODO: return a parse error instead of None
+        _ => return None,
+    };
+
+    let method = match method_raw {
+        "GET" => HttpMethod::GET,
+        // TODO: return a parse error instead of None
+        _ => return None,
+    };
+
+    Some(Request {
+        method,
+        target: String::from(target),
+        protocol: String::from(protocol),
+    })
+}
+
+#[derive(PartialEq, Debug)]
+struct Request {
+    method: HttpMethod,
+    target: String,
+    protocol: String,
+}
+
+#[derive(PartialEq, Debug)]
+enum HttpMethod {
+    GET,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn parses_get_request() {
+        let request = "GET foo bar";
+        let want = HttpMethod::GET;
+
+        if let Some(parsed_request) = parse_request(request) {
+            assert_eq!(want, parsed_request.method);
+        } else {
+            panic!("did not parse correctly");
+        };
+    }
 }
