@@ -3,8 +3,6 @@ use std::{
     fs,
     io::{prelude::*, BufReader},
     net::{TcpListener, TcpStream},
-    thread,
-    time::Duration,
 };
 
 const DEFAULT_ADDR_IP4: &str = "127.0.0.1";
@@ -15,8 +13,10 @@ fn main() -> Result<(), std::io::Error> {
     // TODO: pull out all of this to a module
     // ideally it will be called like
     //
-    // http::register_handler(uri: string, hander: func)
-    // http::listen_and_serve(socket: impl ToSocketAddr)
+    // server::register_handler(uri: string, hander: func)
+    // server::listen_and_serve(socket: impl ToSocketAddr)
+    //
+    // ThreadPools don't need to be exposed to main at all
 
     let socket_ipv4 = format!("{DEFAULT_ADDR_IP4}:{DEFAULT_PORT}");
     let listener = TcpListener::bind(socket_ipv4)?;
@@ -27,8 +27,14 @@ fn main() -> Result<(), std::io::Error> {
         match conn {
             Ok(stream) => {
                 pool.execute(|| {
-                    // FIXME: handle error
-                    handle_connection(stream).unwrap();
+                    match handle_connection(stream) {
+                        Ok(()) => {
+                            println!("connection closed successfully");
+                        }
+                        Err(e) => {
+                            eprintln!("error handling connection: {:?}", e);
+                        }
+                    };
                 });
             }
             Err(e) => {
@@ -48,10 +54,6 @@ fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
         // TODO: parse into a request object
         let (status_line, filename) = match &request_line?[..] {
             "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
-            "GET /sleep HTTP/1.1" => {
-                thread::sleep(Duration::from_secs(10));
-                ("HTTP/1.1 200 OK", "hello.html")
-            }
             _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
         };
 
