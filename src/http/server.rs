@@ -1,7 +1,9 @@
 use super::thread_pool::ThreadPool;
+use std::error::Error;
 use std::fs;
 use std::io::{prelude::*, BufReader};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::str::FromStr;
 
 // TODO: make a struct to hold all this
 
@@ -17,6 +19,7 @@ where
         match conn {
             Ok(stream) => {
                 pool.execute(|| {
+                    // TODO: different handler funcs for paths
                     match handle_connection(stream) {
                         Ok(()) => {
                             println!("connection closed successfully");
@@ -38,53 +41,83 @@ where
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
+fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let buf_reader = BufReader::new(&mut stream);
-    if let Some(request_line) = buf_reader.lines().next() {
-        // TODO: requests are more than a single line
-        // TODO: parse into a request object
-        let (status_line, filename) = match &request_line?[..] {
-            "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
-            _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
-        };
-
-        let contents = fs::read_to_string(format!("www/{filename}"))?;
-        let length = contents.len();
-
-        // TODO: build response object
-        let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
-
-        stream.write_all(response.as_bytes())?;
+    let request = HttpRequest::new(buf_reader)?;
+    // TODO: create a response object
+    let (status_line, filename) = match request.target.as_str() {
+        "/" => ("HTTP/1.1 200 OK", "hello.html"),
+        _ => ("HTTP/1.1 404 Not Found", "404.html"),
     };
+
+    let contents = fs::read_to_string(format!("www/{filename}"))?;
+    let length = contents.len();
+
+    // TODO: build response object
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+
+    stream.write_all(response.as_bytes())?;
+    // TODO: requests are more than a single line
 
     Ok(())
 }
 
-fn parse_request_line(request_line: &str) -> Result<Request, Error> {
-    let [method_raw, target, protocol] = match request_line.split(' ').collect::<Vec<&str>>()[..] {
-        [method, target, protocol] => [method, target, protocol],
-        // TODO: return a parse error instead of None
-        _ => return None,
-    };
+const HTTP1_1: &'static str = "HTTP/1.1";
 
-    let method = match method_raw {
-        "GET" => HttpMethod::GET,
-        // TODO: return a parse error instead of None
-        _ => return None,
-    };
+#[derive(PartialEq, Debug)]
+struct HttpRequest {
+    method: HttpMethod,
+    target: String,
+    protocol: &'static str,
+    host: String,
+}
 
-    Some(Request {
-        method,
-        target: String::from(target),
-        protocol: String::from(protocol),
-    })
+impl HttpRequest {
+    fn new<T>(req: T) -> Result<Self, Box<dyn Error>>
+    where
+        T: BufRead,
+    {
+        let mut lines = req.lines();
+
+        let request_line = if let Some(line) = lines.next() {
+            line?
+        } else {
+            return Err(ParseRequestError.into());
+        };
+        let [method_raw, target, protocol] = match request_line.split(' ').collect::<Vec<&str>>()[..]
+        {
+            [method, target, protocol] => [method, target, protocol],
+            _ => return Err(ParseRequestError.into()),
+        };
+        let method = HttpMethod::from_str(method_raw)?;
+        if protocol != HTTP1_1 {
+            return Err(ParseRequestError.into());
+        }
+
+        let host_line = if let Some(line) = lines.next() {
+            line?
+        } else {
+            return Err(ParseRequestError.into());
+        };
+        let host = match host_line.split_once(':') {
+            Some(("Host", domain)) => domain.trim(),
+            _ => return Err(ParseRequestError.into()),
+        };
+
+        Ok(Self {
+            method,
+            target: String::from(target),
+            protocol: HTTP1_1,
+            host: String::from(host),
+        })
+    }
 }
 
 #[derive(PartialEq, Debug)]
 struct Request {
     method: HttpMethod,
     target: String,
-    protocol: String,
+    protocol: &'static str,
 }
 
 #[derive(PartialEq, Debug)]
@@ -92,29 +125,64 @@ enum HttpMethod {
     GET,
 }
 
-#[derive(Debug)]
-struct ParseRequestError {
-    request: String,
-}
+impl FromStr for HttpMethod {
+    type Err = ParseRequestError;
 
-impl std::fmt::Display for ParseRequestError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "could not parse request '{}'", self.request)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "GET" => Ok(HttpMethod::GET),
+            _ => Err(ParseRequestError),
+        }
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct ParseRequestError;
+
+impl std::fmt::Display for ParseRequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "could not parse request")
+    }
+}
+
+impl Error for ParseRequestError {}
+
 #[cfg(test)]
-mod test {
+mod test_http_request {
+    use std::io::Cursor;
+
     use super::*;
     #[test]
-    fn parses_get_request() {
-        let request = "GET foo bar";
-        let want = HttpMethod::GET;
-
-        if let Some(parsed_request) = parse_request_line(request) {
-            assert_eq!(want, parsed_request.method);
-        } else {
-            panic!("did not parse correctly");
+    fn new_succeeds() {
+        let request = Cursor::new("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
+        let want = HttpRequest {
+            method: HttpMethod::GET,
+            target: String::from("/"),
+            protocol: "HTTP/1.1",
+            host: String::from("example.com"),
         };
+
+        let got = HttpRequest::new(request).unwrap();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn new_succeeds_with_port_in_host() {
+        let request = Cursor::new("GET / HTTP/1.1\r\nHost: localhost:7878\r\n\r\n".as_bytes());
+        let want = HttpRequest {
+            method: HttpMethod::GET,
+            target: String::from("/"),
+            protocol: "HTTP/1.1",
+            host: String::from("localhost:7878"),
+        };
+        let got = HttpRequest::new(request).unwrap();
+        assert_eq!(got, want)
+    }
+
+    #[test]
+    fn new_fails_without_host() {
+        let request = Cursor::new("GET / HTTP/1.1\r\n\r\n");
+        let got = HttpRequest::new(request).unwrap_err();
+        assert!(got.is::<ParseRequestError>());
     }
 }
