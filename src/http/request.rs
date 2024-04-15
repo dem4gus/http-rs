@@ -15,6 +15,7 @@ impl Request {
     where
         T: std::io::BufRead,
     {
+        // BUG: response is served before request has ended (double CRLF)
         let mut lines = req.lines();
 
         let request_line = if let Some(line) = lines.next() {
