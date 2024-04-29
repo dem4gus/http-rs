@@ -1,8 +1,10 @@
 use super::{request::Request, thread_pool::ThreadPool};
-use std::error::Error;
-use std::fs;
-use std::io::{prelude::*, BufReader};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::{
+    error::Error,
+    fs,
+    io::{prelude::*, BufReader},
+    net::{TcpListener, TcpStream, ToSocketAddrs},
+};
 
 // TODO: make a struct to hold all this
 
