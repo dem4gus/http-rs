@@ -76,9 +76,9 @@ impl std::error::Error for ParseRequestError {}
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use std::io::Cursor;
 
-    use super::*;
     #[test]
     fn parse_succeeds() {
         let request = Cursor::new("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
